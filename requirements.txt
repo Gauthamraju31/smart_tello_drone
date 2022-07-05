@@ -1,0 +1,4 @@
+djitellopy
+mediapipe
+filterpy
+lap
