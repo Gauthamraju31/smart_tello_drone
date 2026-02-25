@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
     telemetryLogger.start();
 
     // GUI Manager
-    AppGui appGui(sdk, decoder, telemetryLogger, recorder);
+    AppGui appGui(window, sdk, decoder, telemetryLogger, recorder);
     VideoWindow videoWindow(decoder);
     ControlPanel controlPanel(sdk);
     TelemetryPanel telemetryPanel(sdk);

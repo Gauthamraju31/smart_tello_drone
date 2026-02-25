@@ -6,9 +6,11 @@
 #include "../core/Recorder.h"
 #include <memory>
 
+struct GLFWwindow;
+
 class AppGui {
 public:
-    AppGui(TelloSDK& sdk, VideoDecoder& decoder, TelemetryLogger& logger, Recorder& recorder);
+    AppGui(GLFWwindow* window, TelloSDK& sdk, VideoDecoder& decoder, TelemetryLogger& logger, Recorder& recorder);
     ~AppGui() = default;
 
     // Call this every frame inside the ImGui context
@@ -28,6 +30,7 @@ private:
     
     void handleKeyboardShortcuts();
 
+    GLFWwindow* m_window;
     TelloSDK& m_sdk;
     VideoDecoder& m_decoder;
     TelemetryLogger& m_logger;

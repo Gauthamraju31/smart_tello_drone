@@ -1,10 +1,11 @@
 #include "AppGui.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <GLFW/glfw3.h>
 #include <iostream>
 
-AppGui::AppGui(TelloSDK& sdk, VideoDecoder& decoder, TelemetryLogger& logger, Recorder& recorder)
-    : m_sdk(sdk), m_decoder(decoder), m_logger(logger), m_recorder(recorder) {}
+AppGui::AppGui(GLFWwindow* window, TelloSDK& sdk, VideoDecoder& decoder, TelemetryLogger& logger, Recorder& recorder)
+    : m_window(window), m_sdk(sdk), m_decoder(decoder), m_logger(logger), m_recorder(recorder) {}
 
 void AppGui::render() {
     handleKeyboardShortcuts();
@@ -61,7 +62,9 @@ void AppGui::renderMenuBar() {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Settings", nullptr, m_showSettings)) m_showSettings = !m_showSettings;
             ImGui::Separator();
-            if (ImGui::MenuItem("Exit", "Alt+F4")) { /* handled by main.cpp */ }
+            if (ImGui::MenuItem("Exit", "Alt+F4")) {
+                if (m_window) glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+            }
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Drone")) {
