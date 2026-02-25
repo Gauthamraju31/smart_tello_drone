@@ -1,6 +1,8 @@
 #include "SettingsPanel.h"
 
-SettingsPanel::SettingsPanel() {}
+SettingsPanel::SettingsPanel(SLAMEngine& slamEngine) : m_slamEngine(slamEngine) {
+    m_slamEnabled = m_slamEngine.isEnabled();
+}
 
 void SettingsPanel::render(bool* p_open) {
     if (ImGui::Begin("Settings", p_open)) {
@@ -27,7 +29,10 @@ void SettingsPanel::render(bool* p_open) {
             ImGui::Checkbox("Object Tracking (YOLOv8)", &m_aiTracking);
             ImGui::Checkbox("Instance Segmentation (SAM)", &m_aiSegmentation);
             ImGui::Separator();
-            ImGui::Checkbox("Monocular SLAM (Map Viewer)", &m_slamEnabled);
+            
+            if (ImGui::Checkbox("Monocular SLAM (Map Viewer)", &m_slamEnabled)) {
+                m_slamEngine.setEnabled(m_slamEnabled);
+            }
             
             if (m_aiTracking || m_aiSegmentation || m_slamEnabled) {
                 ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Warning: AI placeholders consume CPU");

@@ -9,8 +9,9 @@ A high-performance Ground Control Station (GCS) for the DJI Tello drone, written
 - **Advanced Telemetry Dashboard:** Parses state data at ~10Hz, featuring custom-drawn artificial horizons, real-time plotting, and battery status.
 - **Professional UI:** Built with Dear ImGui (docking branch) using a custom dark theme (Catppuccin Mocha inspired). Layout is fully customizable, dockable, and floating window capable.
 - **Flight Controls:** Virtual dual-joysticks (RC control) via UI and keyboard hotkeys (WASD, QE, Space, L, Esc).
+- **Visual Odometry (SLAM):** Built-in monocular SLAM tracking using OpenCV optical flow, projecting movement onto an interactive 3D map.
 - **Recording & Snapshots:** OpenCV-powered background thread for saving H.264 `.mp4` videos and `.png` snapshots without dropping GUI frames.
-- **Extensible Architecture:** Designed with placeholder interfaces for AI edge processing (YOLOv8 tracking, SAM segmentation) and SLAM (ORB-SLAM3).
+- **Data Replay Sessions:** Time-synchronized playback of previously recorded flight sessions, re-rendering video, telemetry, and SLAM plots exactly as they occurred live.
 
 ## Prerequisites (Linux)
 
@@ -58,24 +59,37 @@ Connect your computer to the Tello's WiFi network (usually `TELLO-XXXXXX`), then
 ./build/SmartTelloDrone
 ```
 
-### Simulation Mode
+### Command Line Arguments
 
-If you don't have a drone connected but want to test the GUI layout and resource usage:
+The application accepts optional CLI flags for different execution modes:
 
+- `--help` or `-h`: Display the help message outlining the available CLI commands.
+- `--simulate`: Launches the UI without attempting to connect to a drone. Assumes dummy parameters useful for testing layouts.
+- `--replay <video.mp4> <telemetry.csv>`: Loads a past flight session. The video frames and CSV rows are synchronized and injected directly into the application timeline, simulating a live flight on your screen.
+
+Example Replay:
 ```bash
-./build/SmartTelloDrone --simulate
+./build/SmartTelloDrone --replay recordings/flight_vid.mp4 logs/flight_data.csv
 ```
-*(Note: `--simulate` flag handler is stubbed out in the current main.cpp, but the GUI runs safely unconnected.)*
 
-## Architecture
+## UI & Controls
 
-- `src/core/`: Network communication (`TelloSDK`), Video Decoding (`VideoDecoder`), Telemetry CSV logging, and OpenCV `Recorder`.
-- `src/gui/`: ImGui windows (`AppGui`, `VideoWindow`, `TelemetryPanel`, `ControlPanel`, `LogTerminal`, `SettingsPanel`).
-- `src/ai/`: Placeholders inheriting from `FrameProcessor` enabling AI hooks before frames are rendered.
-- `src/slam/`: SLAM interface and a `MapViewer` that renders 3D point clouds to an OpenGL Framebuffer Object (FBO) for display within ImGui.
+The application relies heavily on keyboard override commands mapped directly to the UI panel:
+
+| Action | Keybinding |
+| :--- | :--- |
+| **Takeoff** | `Spacebar` |
+| **Land** | `L` |
+| **Emergency Kill** | `Esc` |
+| **Pitch Forward / Backward** | `W` / `S` |
+| **Roll Left / Right** | `A` / `D` |
+| **Throttle Up / Down** | `Up Arrow` / `Down Arrow` |
+| **Yaw Left / Right** | `Left Arrow` / `Right Arrow` (or `Q` / `E`) |
+
+> **Note:** SLAM map points require both an active video stream (**Drone -> Stream On**) and significant texture density in the camera view to lock onto trackable features.
 
 ## Output Directories
 
-When running the application, it will generate data in two folders at the project root:
-- `logs/`: Contains `telemetry_YYYYMMDD_HHMMSS.csv` files with raw drone state data.
-- `recordings/`: Contains saved `.mp4` videos and `.png` snapshots.
+When running the application in live-flight mode, it will generate data in two folders at the project root:
+- `logs/`: Contains `telemetry_YYYYMMDD_HHMMSS.csv` files with raw drone state data recorded at ~10Hz.
+- `recordings/`: Contains saved `.mp4` videos and `.png` snapshots triggered from the Recording Panel.

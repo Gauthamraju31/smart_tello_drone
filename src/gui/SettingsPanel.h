@@ -1,11 +1,12 @@
 #pragma once
 
 #include "../core/TelloSDK.h"
+#include "../slam/SLAMEngine.h"
 #include <imgui.h>
 
 class SettingsPanel {
 public:
-    SettingsPanel();
+    SettingsPanel(SLAMEngine& slamEngine);
     
     void render(bool* p_open = nullptr);
 
@@ -18,4 +19,6 @@ private:
     bool m_aiTracking = false;
     bool m_aiSegmentation = false;
     bool m_slamEnabled = false;
+
+    SLAMEngine& m_slamEngine;
 };

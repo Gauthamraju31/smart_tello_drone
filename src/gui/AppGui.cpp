@@ -48,6 +48,7 @@ void AppGui::renderDockSpace() {
         ImGui::DockBuilderDockWindow("SLAM Map Viewer", dock_main_id);
         ImGui::DockBuilderDockWindow("Telemetry", dock_right_id);
         ImGui::DockBuilderDockWindow("Flight Controls", dock_right_bottom_id);
+        ImGui::DockBuilderDockWindow("Replay Controls", dock_right_bottom_id);
         ImGui::DockBuilderDockWindow("Log Terminal", dock_bottom_id);
         ImGui::DockBuilderDockWindow("Recording", dock_bottom_id);
 

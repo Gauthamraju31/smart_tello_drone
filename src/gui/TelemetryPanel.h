@@ -1,11 +1,11 @@
 #pragma once
 
-#include "../core/TelloSDK.h"
+#include "../core/TelemetryLogger.h"
 #include <imgui.h>
 
 class TelemetryPanel {
 public:
-    TelemetryPanel(TelloSDK& sdk);
+    TelemetryPanel(TelemetryLogger& logger);
     
     // Renders the telemetry dashboard inside ImGui
     void render(bool* p_open = nullptr);
@@ -15,5 +15,5 @@ private:
     void renderAttitudeDial(int pitch, int roll, int yaw);
     void renderAltitudeSpeed(int h, float baro, int vgx, int vgy, int vgz);
 
-    TelloSDK& m_sdk;
+    TelemetryLogger& m_logger;
 };

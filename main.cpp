@@ -11,6 +11,7 @@
 #include "core/VideoDecoder.h"
 #include "core/TelemetryLogger.h"
 #include "core/Recorder.h"
+#include "core/ReplaySession.h"
 #include "slam/SLAMEngine.h"
 #include "slam/MapViewer.h"
 
@@ -22,12 +23,37 @@
 #include "gui/LogTerminal.h"
 #include "gui/RecordingPanel.h"
 #include "gui/SettingsPanel.h"
+#include "gui/ReplayPanel.h"
 
 static void glfw_error_callback(int error, const char* description) {
     std::cerr << "GLFW Error " << error << ": " << description << std::endl;
 }
 
 int main(int argc, char** argv) {
+    bool replayMode = false;
+    std::string replayVideo, replayCSV;
+
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            std::cout << "Smart Tello Drone Simulator UI\n"
+                      << "Usage: SmartTelloDrone [OPTIONS]\n\n"
+                      << "Options:\n"
+                      << "  --help, -h                  Show this help message and exit\n"
+                      << "  --simulate                  Run with dummy data (No drone required)\n"
+                      << "  --replay <video> <csv>      Replay a recorded mission using the specified\n"
+                      << "                              MP4 video and CSV telemetry files.\n\n"
+                      << "Examples:\n"
+                      << "  ./SmartTelloDrone\n"
+                      << "  ./SmartTelloDrone --simulate\n"
+                      << "  ./SmartTelloDrone --replay recordings/vid_test.mp4 logs/telemetry_test.csv\n";
+            return 0;
+        } else if (arg == "--replay" && i + 2 < argc) {
+            replayMode = true;
+            replayVideo = argv[++i];
+            replayCSV = argv[++i];
+        }
+    }
     Logger::init();
     spdlog::info("Starting Smart Tello Drone Simulator UI...");
 
@@ -75,27 +101,53 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // Wiring callbacks
-    sdk.onTelemetry = [&telemetryLogger](const TelemetryData& t) {
-        telemetryLogger.log(t);
-    };
+    ReplaySession replaySession;
 
-    sdk.onVideoData = [&decoder](const uint8_t* data, size_t size) {
-        decoder.decodeNetworkPacket(data, size);
-    };
+    if (replayMode) {
+        spdlog::info("Running in REPLAY mode.");
+        replaySession.onVideoFrame = [&decoder, &recorder, &slamEngine](const VideoFrame& frame) {
+            decoder.setLatestFrame(frame); // Safely passes to main thread
+            recorder.addFrame(frame);
+            if (slamEngine.isEnabled()) {
+                cv::Mat matFrame(frame.height, frame.width, CV_8UC3, (void*)frame.data.data());
+                // We don't have perfect sync in this lambda for IMU, but SLAMEngine stores the last IMU anyway
+                // So we just pass a zeroed one or let SLAMEngine use the last received IMU time.
+                // We'll pass a dummy here, and let onTelemetry drive the IMU scale
+                TelemetryData dummy = {0};
+                dummy.timestamp_ms = frame.timestamp_ms;
+                slamEngine.processFrame(matFrame, dummy);
+            }
+        };
 
-    sdk.onResponse = [](const std::string& resp) {
-        spdlog::debug("Tello: {}", resp);
-    };
+        // Inject telemetry
+        replaySession.onTelemetry = [&telemetryLogger](const TelemetryData& t) {
+            telemetryLogger.log(t);
+        };
 
-    decoder.onFrameDecoded = [&recorder, &slamEngine, &sdk](const VideoFrame& frame) {
-        recorder.addFrame(frame);
-        
-        if (slamEngine.isEnabled()) {
-            cv::Mat matFrame(frame.height, frame.width, CV_8UC3, (void*)frame.data.data());
-            slamEngine.processFrame(matFrame, sdk.getLatestTelemetry());
-        }
-    };
+        replaySession.start(replayVideo, replayCSV);
+    } else {
+        // Live drone mode Wiring callbacks
+        sdk.onTelemetry = [&telemetryLogger](const TelemetryData& t) {
+            telemetryLogger.log(t);
+        };
+
+        sdk.onVideoData = [&decoder](const uint8_t* data, size_t size) {
+            decoder.decodeNetworkPacket(data, size);
+        };
+
+        sdk.onResponse = [](const std::string& resp) {
+            spdlog::debug("Tello: {}", resp);
+        };
+
+        decoder.onFrameDecoded = [&recorder, &slamEngine, &sdk](const VideoFrame& frame) {
+            recorder.addFrame(frame);
+            
+            if (slamEngine.isEnabled()) {
+                cv::Mat matFrame(frame.height, frame.width, CV_8UC3, (void*)frame.data.data());
+                slamEngine.processFrame(matFrame, sdk.getLatestTelemetry());
+            }
+        };
+    }
 
     // Begin logging immediately if configured, or wait for user to start it manually
     telemetryLogger.start();
@@ -104,14 +156,11 @@ int main(int argc, char** argv) {
     AppGui appGui(window, sdk, decoder, telemetryLogger, recorder);
     VideoWindow videoWindow(decoder);
     ControlPanel controlPanel(sdk);
-    TelemetryPanel telemetryPanel(sdk);
+    TelemetryPanel telemetryPanel(telemetryLogger);
     LogTerminal logTerminal(Logger::getGuiSink());
     RecordingPanel recordingPanel(recorder, decoder);
-    SettingsPanel settingsPanel;
-
-    // We modify AppGui::render to take the panels as dependencies 
-    // to avoid duplicating state. (A quick hack for this structure)
-    // For cleaner architecture, AppGui would own or inject them cleanly.
+    SettingsPanel settingsPanel(slamEngine);
+    ReplayPanel replayPanel(replaySession);
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
@@ -121,22 +170,20 @@ int main(int argc, char** argv) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // 1. AppGui creates Dockspace and Menu
         appGui.render(); 
 
-        // 2. We render the individual panels if their flags in AppGui are true
-        // Since AppGui owns the bools, we'll patch AppGui to call these, 
-        // OR render them here. For simplicity, we just render them:
-        // (Note: To keep it clean without massive refactoring, we render them all
-        //  and let ImGui handle the docking visibility, but normally we'd pass bool ptrs)
-        
         bool dummy = true;
         videoWindow.render(&dummy);
-        controlPanel.render(&dummy);
         telemetryPanel.render(&dummy);
         logTerminal.render(&dummy);
-        recordingPanel.render(&dummy);
         settingsPanel.render(&dummy);
+        
+        if (replayMode) {
+            replayPanel.render(&dummy);
+        } else {
+            controlPanel.render(&dummy);
+            recordingPanel.render(&dummy);
+        }
 
         // Render SLAM Map Viewer
         ImGui::Begin("SLAM Map Viewer", nullptr);
@@ -169,7 +216,12 @@ int main(int argc, char** argv) {
     }
 
     // Cleanup
-    sdk.disconnect();
+    if (replayMode) {
+        replaySession.stop();
+    } else {
+        sdk.disconnect();
+    }
+    
     telemetryLogger.stop();
     recorder.stopRecording();
     decoder.shutdown();

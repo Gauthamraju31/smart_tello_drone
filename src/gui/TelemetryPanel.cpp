@@ -1,7 +1,7 @@
 #include "TelemetryPanel.h"
 #include <cmath>
 
-TelemetryPanel::TelemetryPanel(TelloSDK& sdk) : m_sdk(sdk) {}
+TelemetryPanel::TelemetryPanel(TelemetryLogger& logger) : m_logger(logger) {}
 
 void TelemetryPanel::renderBatteryBar(int bat) {
     ImVec4 color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); // Green
@@ -65,7 +65,7 @@ void TelemetryPanel::renderAltitudeSpeed(int h, float baro, int vgx, int vgy, in
 
 void TelemetryPanel::render(bool* p_open) {
     if (ImGui::Begin("Telemetry", p_open)) {
-        TelemetryData t = m_sdk.getLatestTelemetry();
+        TelemetryData t = m_logger.getLatest();
 
         renderBatteryBar(t.bat);
         ImGui::Separator();

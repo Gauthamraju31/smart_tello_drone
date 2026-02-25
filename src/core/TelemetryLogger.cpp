@@ -89,3 +89,9 @@ std::vector<TelemetryData> TelemetryLogger::getHistory(size_t maxSamples) {
     }
     return result;
 }
+
+TelemetryData TelemetryLogger::getLatest() {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_history.empty()) return TelemetryData{0};
+    return m_history.back();
+}

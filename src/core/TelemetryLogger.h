@@ -22,6 +22,8 @@ public:
     // Get the last N samples for plotting (thread-safe)
     std::vector<TelemetryData> getHistory(size_t maxSamples = 100);
 
+    TelemetryData getLatest();
+
 private:
     std::string generateFilename() const;
 

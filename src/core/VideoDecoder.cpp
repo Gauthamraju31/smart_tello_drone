@@ -181,3 +181,9 @@ void VideoDecoder::uploadTexture(const VideoFrame& frame) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, frame.width, frame.height, 0, GL_RGB, GL_UNSIGNED_BYTE, frame.data.data());
     glBindTexture(GL_TEXTURE_2D, 0); // Unbind
 }
+
+void VideoDecoder::setLatestFrame(const VideoFrame& frame) {
+    std::lock_guard<std::mutex> lock(m_frameMutex);
+    m_latestFrame = frame;
+    m_newFrameAvailable = true;
+}

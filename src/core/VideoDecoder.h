@@ -42,9 +42,13 @@ public:
     // Callback fired when a new frame is decoded (from worker thread)
     std::function<void(const VideoFrame&)> onFrameDecoded;
 
+    void uploadTexture(const VideoFrame& frame); // Must be called on main thread context
+    
+    // Allows external sources (like ReplaySession) to safely inject a frame
+    void setLatestFrame(const VideoFrame& frame);
+
 private:
     void processDecodedFrame(AVFrame* frame);
-    void uploadTexture(const VideoFrame& frame); // Must be called on main thread context
 
     const AVCodec* m_codec;
     AVCodecContext* m_codecCtx;
