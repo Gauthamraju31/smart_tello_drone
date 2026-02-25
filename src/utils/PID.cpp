@@ -1,53 +1,61 @@
-// src/utils/PID.cpp
 #include "PID.h"
+#include <algorithm>
 
-namespace {
-    int64_t now_ms() {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-    }
-}
-
-PID::PID(float p, float i, float d, float min, float max)
-    : m_kp(p), m_ki(i), m_kd(d), m_outMin(min), m_outMax(max),
-      m_integral(0), m_prevError(0), m_lastTime(0) {
-}
+PID::PID(float kp, float ki, float kd, float outMin, float outMax)
+    : m_kp(kp), m_ki(ki), m_kd(kd), m_outMin(outMin), m_outMax(outMax),
+      m_integral(0.0f), m_prevError(0.0f), m_lastTime(0) {}
 
 float PID::update(float setpoint, float measured) {
-    int64_t now = now_ms();
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count();
+
     if (m_lastTime == 0) {
-        m_lastTime = now;
-        return 0.0f;
+        m_lastTime = now_ms;
+        return 0.0f; // Initial call, no dt yet
     }
 
-    float dt = (now - m_lastTime) / 1000.0f;
-    if (dt <= 0.0f) dt = 0.001f;
+    float dt = (now_ms - m_lastTime) / 1000.0f;
+    if (dt <= 0.0f) {
+        dt = 0.001f; // Prevent division by zero
+    }
+    
+    m_lastTime = now_ms;
 
     float error = setpoint - measured;
-    
+
+    // Proportional
+    float pOut = m_kp * error;
+
+    // Integral
     m_integral += error * dt;
-    
-    // Anti-windup clamping (basic)
-    // A better approach clamps based on whether the output is saturating
-    if (m_ki * m_integral > m_outMax) m_integral = m_outMax / m_ki;
-    else if (m_ki * m_integral < m_outMin) m_integral = m_outMin / m_ki;
+    // Anti-windup (clamp integral)
+    float iOut = m_ki * m_integral;
+    if (iOut > m_outMax) {
+        iOut = m_outMax;
+        m_integral = m_outMax / m_ki;
+    } else if (iOut < m_outMin) {
+        iOut = m_outMin;
+        m_integral = m_outMin / m_ki;
+    }
 
+    // Derivative
     float derivative = (error - m_prevError) / dt;
+    float dOut = m_kd * derivative;
 
-    float output = (m_kp * error) + (m_ki * m_integral) + (m_kd * derivative);
+    // Total output
+    float output = pOut + iOut + dOut;
 
-    // Clamp output
-    if (output > m_outMax) output = m_outMax;
-    else if (output < m_outMin) output = m_outMin;
+    // Clamp total output
+    output = std::clamp(output, m_outMin, m_outMax);
 
     m_prevError = error;
-    m_lastTime = now;
 
     return output;
 }
 
 void PID::reset() {
-    m_integral = 0;
-    m_prevError = 0;
+    m_integral = 0.0f;
+    m_prevError = 0.0f;
     m_lastTime = 0;
 }

@@ -11,7 +11,7 @@ public:
     void render(bool* p_open = nullptr);
 
 private:
-    char m_ssid[128] = "TELLO-XXXXXX";
+    char m_ssid[128] = "";
     char m_password[128] = "";
     bool m_missionPadEnabled = false;
     int m_videoBitrate = 2; // Default auto

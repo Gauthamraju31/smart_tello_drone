@@ -1,7 +1,34 @@
 #include "SettingsPanel.h"
+#include <yaml-cpp/yaml.h>
+#include <spdlog/spdlog.h>
+#include <cstring>
 
 SettingsPanel::SettingsPanel(SLAMEngine& slamEngine) : m_slamEngine(slamEngine) {
     m_slamEnabled = m_slamEngine.isEnabled();
+    
+    try {
+        YAML::Node config = YAML::LoadFile("config/settings.yaml");
+        if (config["drone"]) {
+            if (config["drone"]["ssid"]) {
+                std::string ssid = config["drone"]["ssid"].as<std::string>();
+                std::strncpy(m_ssid, ssid.c_str(), sizeof(m_ssid) - 1);
+            }
+            if (config["drone"]["password"]) {
+                std::string pwd = config["drone"]["password"].as<std::string>();
+                std::strncpy(m_password, pwd.c_str(), sizeof(m_password) - 1);
+            }
+        }
+        if (config["features"]) {
+            if (config["features"]["slam_enabled"]) {
+                m_slamEnabled = config["features"]["slam_enabled"].as<bool>();
+                m_slamEngine.setEnabled(m_slamEnabled);
+            }
+            if (config["features"]["yolo_enabled"]) m_aiTracking = config["features"]["yolo_enabled"].as<bool>();
+            if (config["features"]["sam_enabled"]) m_aiSegmentation = config["features"]["sam_enabled"].as<bool>();
+        }
+    } catch (const YAML::Exception& e) {
+        spdlog::warn("SettingsPanel: Could not load config/settings.yaml ({})", e.what());
+    }
 }
 
 void SettingsPanel::render(bool* p_open) {

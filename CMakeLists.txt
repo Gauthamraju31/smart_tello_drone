@@ -53,3 +53,20 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Eigen3::Eigen
     pthread
 )
+
+# Enable Testing
+enable_testing()
+
+add_executable(test_pid tests/test_pid.cpp src/utils/PID.cpp)
+target_include_directories(test_pid PRIVATE src)
+add_test(NAME test_pid COMMAND test_pid)
+
+add_executable(test_telemetry_parser tests/test_telemetry_parser.cpp)
+target_include_directories(test_telemetry_parser PRIVATE src)
+add_test(NAME test_telemetry_parser COMMAND test_telemetry_parser)
+
+add_executable(test_tello_sdk tests/test_tello_sdk.cpp src/core/TelloSDK.cpp)
+target_include_directories(test_tello_sdk PRIVATE src)
+# Needs pthread because TelloSDK creates threads on construction
+target_link_libraries(test_tello_sdk PRIVATE pthread spdlog::spdlog)
+add_test(NAME test_tello_sdk COMMAND test_tello_sdk)
