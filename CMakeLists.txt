@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED libavcodec libavformat libswscale libavutil)
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs dnn)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio imgcodecs dnn video calib3d features2d)
 find_package(spdlog REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(Eigen3 REQUIRED)

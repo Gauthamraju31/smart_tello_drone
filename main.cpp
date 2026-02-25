@@ -11,6 +11,8 @@
 #include "core/VideoDecoder.h"
 #include "core/TelemetryLogger.h"
 #include "core/Recorder.h"
+#include "slam/SLAMEngine.h"
+#include "slam/MapViewer.h"
 
 #include "gui/Theme.h"
 #include "gui/AppGui.h"
@@ -58,11 +60,15 @@ int main(int argc, char** argv) {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    // Core Components
     TelloSDK sdk;
     VideoDecoder decoder;
     TelemetryLogger telemetryLogger;
     Recorder recorder;
+    SLAMEngine slamEngine;
+    MapViewer mapViewer;
+
+    slamEngine.setEnabled(true);
+    slamEngine.initialize("config/tello_calib.yaml");
 
     if (!decoder.initialize()) {
         spdlog::error("Failed to initialize VideoDecoder");
@@ -82,8 +88,13 @@ int main(int argc, char** argv) {
         spdlog::debug("Tello: {}", resp);
     };
 
-    decoder.onFrameDecoded = [&recorder](const VideoFrame& frame) {
+    decoder.onFrameDecoded = [&recorder, &slamEngine, &sdk](const VideoFrame& frame) {
         recorder.addFrame(frame);
+        
+        if (slamEngine.isEnabled()) {
+            cv::Mat matFrame(frame.height, frame.width, CV_8UC3, (void*)frame.data.data());
+            slamEngine.processFrame(matFrame, sdk.getLatestTelemetry());
+        }
     };
 
     // Begin logging immediately if configured, or wait for user to start it manually
@@ -126,6 +137,18 @@ int main(int argc, char** argv) {
         logTerminal.render(&dummy);
         recordingPanel.render(&dummy);
         settingsPanel.render(&dummy);
+
+        // Render SLAM Map Viewer
+        ImGui::Begin("SLAM Map Viewer", nullptr);
+        ImVec2 avail_size = ImGui::GetContentRegionAvail();
+        if (avail_size.x > 0 && avail_size.y > 0) {
+            GLuint mapTex = mapViewer.renderToTexture((int)avail_size.x, (int)avail_size.y, slamEngine);
+            if (mapTex) {
+                // OpenGL texture coordinates are upside down for ImGui image, pass uv0/uv1 to flip
+                ImGui::Image((ImTextureID)(intptr_t)mapTex, avail_size, ImVec2(0, 1), ImVec2(1, 0));
+            }
+        }
+        ImGui::End();
 
         ImGui::Render();
         int display_w, display_h;

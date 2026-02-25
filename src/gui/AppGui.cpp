@@ -44,8 +44,8 @@ void AppGui::renderDockSpace() {
         ImGuiID dock_right_bottom_id = ImGui::DockBuilderSplitNode(dock_right_id, ImGuiDir_Down, 0.35f, nullptr, &dock_right_id);
         ImGuiID dock_bottom_id = ImGui::DockBuilderSplitNode(dock_main_id, ImGuiDir_Down, 0.25f, nullptr, &dock_main_id);
 
-        // Assign windows to layout
         ImGui::DockBuilderDockWindow("Video Stream", dock_main_id);
+        ImGui::DockBuilderDockWindow("SLAM Map Viewer", dock_main_id);
         ImGui::DockBuilderDockWindow("Telemetry", dock_right_id);
         ImGui::DockBuilderDockWindow("Flight Controls", dock_right_bottom_id);
         ImGui::DockBuilderDockWindow("Log Terminal", dock_bottom_id);

@@ -11,7 +11,7 @@ public:
     void render(bool* p_open = nullptr);
 
 private:
-    void drawJoystick(const char* label, float* x, float* y);
+    void drawJoystick(const char* label, float* out_x, float* out_y, float key_x = 0.0f, float key_y = 0.0f);
 
     TelloSDK& m_sdk;
     int m_speed = 50;

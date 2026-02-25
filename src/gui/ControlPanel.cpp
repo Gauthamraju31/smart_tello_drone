@@ -11,7 +11,7 @@ namespace {
 
 ControlPanel::ControlPanel(TelloSDK& sdk) : m_sdk(sdk) {}
 
-void ControlPanel::drawJoystick(const char* label, float* out_x, float* out_y) {
+void ControlPanel::drawJoystick(const char* label, float* out_x, float* out_y, float key_x, float key_y) {
     ImGui::Text("%s", label);
     ImVec2 p = ImGui::GetCursorScreenPos();
     float radius = 60.0f;
@@ -50,6 +50,11 @@ void ControlPanel::drawJoystick(const char* label, float* out_x, float* out_y) {
         *out_y = -dy / radius; // Invert Y
         knob_x = cx + dx;
         knob_y = cy + dy;
+    } else if (key_x != 0.0f || key_y != 0.0f) {
+        *out_x = key_x;
+        *out_y = key_y;
+        knob_x = cx + key_x * radius;
+        knob_y = cy - key_y * radius;
     } else {
         // Auto-center when released
         *out_x = 0.0f;
@@ -92,15 +97,33 @@ void ControlPanel::render(bool* p_open) {
 
         ImGui::Separator();
         
+        // Keyboard inputs
+        float left_key_x = 0.0f, left_key_y = 0.0f;
+        float right_key_x = 0.0f, right_key_y = 0.0f;
+        
+        if (!ImGui::GetIO().WantTextInput) {
+            // WASD for Pitch/Roll
+            if (ImGui::IsKeyDown(ImGuiKey_W)) right_key_y = 1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_S)) right_key_y = -1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_A)) right_key_x = -1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_D)) right_key_x = 1.0f;
+
+            // Arrows / QE for Throttle/Yaw
+            if (ImGui::IsKeyDown(ImGuiKey_UpArrow)) left_key_y = 1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_DownArrow)) left_key_y = -1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_LeftArrow) || ImGui::IsKeyDown(ImGuiKey_Q)) left_key_x = -1.0f;
+            if (ImGui::IsKeyDown(ImGuiKey_RightArrow) || ImGui::IsKeyDown(ImGuiKey_E)) left_key_x = 1.0f;
+        }
+
         // Virtual Joysticks
         ImGui::BeginGroup();
-        drawJoystick("Yaw / Throttle", &m_leftJoyX, &m_leftJoyY);
+        drawJoystick("Yaw / Throttle", &m_leftJoyX, &m_leftJoyY, left_key_x, left_key_y);
         ImGui::EndGroup();
         
         ImGui::SameLine(0, 50);
         
         ImGui::BeginGroup();
-        drawJoystick("Roll / Pitch", &m_rightJoyX, &m_rightJoyY);
+        drawJoystick("Roll / Pitch\n  (W/A/S/D)", &m_rightJoyX, &m_rightJoyY, right_key_x, right_key_y);
         ImGui::EndGroup();
 
         // Send RC command at 20Hz if any stick is not centered, or send 0 once
