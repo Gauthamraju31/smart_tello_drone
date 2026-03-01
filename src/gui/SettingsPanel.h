@@ -2,11 +2,13 @@
 
 #include "../core/TelloSDK.h"
 #include "../slam/SLAMEngine.h"
+#include "../ai/Segmentation.h"
 #include <imgui.h>
+#include <memory>
 
 class SettingsPanel {
 public:
-    SettingsPanel(SLAMEngine& slamEngine);
+    SettingsPanel(SLAMEngine& slamEngine, std::shared_ptr<Segmentation> segmentation);
     
     void render(bool* p_open = nullptr);
 
@@ -16,9 +18,9 @@ private:
     bool m_missionPadEnabled = false;
     int m_videoBitrate = 2; // Default auto
     
-    bool m_aiTracking = false;
     bool m_aiSegmentation = false;
     bool m_slamEnabled = false;
 
     SLAMEngine& m_slamEngine;
+    std::shared_ptr<Segmentation> m_segmentation;
 };

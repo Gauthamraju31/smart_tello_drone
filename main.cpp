@@ -7,6 +7,7 @@
 #include "backends/imgui_impl_opengl3.h"
 
 #include "utils/Logger.h"
+#include "utils/AudioEngine.h"
 #include "core/TelloSDK.h"
 #include "core/VideoDecoder.h"
 #include "core/TelemetryLogger.h"
@@ -14,6 +15,7 @@
 #include "core/ReplaySession.h"
 #include "slam/SLAMEngine.h"
 #include "slam/MapViewer.h"
+#include "ai/Segmentation.h"
 
 #include "gui/Theme.h"
 #include "gui/AppGui.h"
@@ -55,6 +57,7 @@ int main(int argc, char** argv) {
         }
     }
     Logger::init();
+    AudioEngine::init();
     spdlog::info("Starting Smart Tello Drone Simulator UI...");
 
     glfwSetErrorCallback(glfw_error_callback);
@@ -96,10 +99,20 @@ int main(int argc, char** argv) {
     slamEngine.setEnabled(true);
     slamEngine.initialize("config/tello_calib.yaml");
 
+    if (mapViewer.loadModel("model/dji_tello.glb")) {
+        spdlog::info("Loaded DJI Tello 3D model successfully.");
+    } else {
+        spdlog::warn("Could not load model/dji_tello.glb");
+    }
+
     if (!decoder.initialize()) {
         spdlog::error("Failed to initialize VideoDecoder");
         return -1;
     }
+
+    auto segmentation = std::make_shared<Segmentation>();
+    segmentation->initialize();
+    decoder.addProcessor(segmentation);
 
     ReplaySession replaySession;
 
@@ -159,7 +172,7 @@ int main(int argc, char** argv) {
     TelemetryPanel telemetryPanel(telemetryLogger);
     LogTerminal logTerminal(Logger::getGuiSink());
     RecordingPanel recordingPanel(recorder, decoder);
-    SettingsPanel settingsPanel(slamEngine);
+    SettingsPanel settingsPanel(slamEngine, segmentation);
     ReplayPanel replayPanel(replaySession);
 
     // Main loop
@@ -187,6 +200,14 @@ int main(int argc, char** argv) {
 
         // Render SLAM Map Viewer
         ImGui::Begin("SLAM Map Viewer", nullptr);
+        
+        if (ImGui::CollapsingHeader("Model Adjustments")) {
+            ImGui::SliderFloat("Scale", &mapViewer.m_modelScale, 0.001f, 2.0f, "%.3f");
+            ImGui::SliderFloat("Rot X (Pitch)", &mapViewer.m_modelRotX, -180.0f, 180.0f, "%.1f");
+            ImGui::SliderFloat("Rot Y (Yaw)", &mapViewer.m_modelRotY, -180.0f, 180.0f, "%.1f");
+            ImGui::SliderFloat("Rot Z (Roll)", &mapViewer.m_modelRotZ, -180.0f, 180.0f, "%.1f");
+        }
+
         ImVec2 avail_size = ImGui::GetContentRegionAvail();
         if (avail_size.x > 0 && avail_size.y > 0) {
             GLuint mapTex = mapViewer.renderToTexture((int)avail_size.x, (int)avail_size.y, slamEngine);
@@ -225,6 +246,7 @@ int main(int argc, char** argv) {
     telemetryLogger.stop();
     recorder.stopRecording();
     decoder.shutdown();
+    AudioEngine::shutdown();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();

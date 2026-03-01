@@ -52,6 +52,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     yaml-cpp
     Eigen3::Eigen
     pthread
+    dl
+    m
 )
 
 # Enable Testing
@@ -65,8 +67,25 @@ add_executable(test_telemetry_parser tests/test_telemetry_parser.cpp)
 target_include_directories(test_telemetry_parser PRIVATE src)
 add_test(NAME test_telemetry_parser COMMAND test_telemetry_parser)
 
-add_executable(test_tello_sdk tests/test_tello_sdk.cpp src/core/TelloSDK.cpp)
+add_executable(test_tello_sdk tests/test_tello_sdk.cpp src/core/TelloSDK.cpp src/utils/AudioEngine.cpp)
 target_include_directories(test_tello_sdk PRIVATE src)
 # Needs pthread because TelloSDK creates threads on construction
-target_link_libraries(test_tello_sdk PRIVATE pthread spdlog::spdlog)
+target_link_libraries(test_tello_sdk PRIVATE pthread spdlog::spdlog dl m)
 add_test(NAME test_tello_sdk COMMAND test_tello_sdk)
+
+add_executable(test_slam_gui tests/test_slam_gui.cpp src/slam/SLAMEngine.cpp src/slam/MapViewer.cpp src/utils/Logger.cpp)
+target_include_directories(test_slam_gui PRIVATE src)
+target_link_libraries(test_slam_gui PRIVATE
+    imgui
+    glfw
+    OpenGL::GL
+    ${OpenCV_LIBS}
+    spdlog::spdlog
+    yaml-cpp
+    Eigen3::Eigen
+    pthread
+    dl
+    m
+)
+add_test(NAME test_slam_gui COMMAND test_slam_gui)
+

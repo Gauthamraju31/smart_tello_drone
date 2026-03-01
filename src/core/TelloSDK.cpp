@@ -1,4 +1,5 @@
 #include "TelloSDK.h"
+#include "../utils/AudioEngine.h"
 #include <iostream>
 #include <sstream>
 #include <chrono>
@@ -62,11 +63,15 @@ bool TelloSDK::connect() {
     // Start keepalive thread
     m_keepAliveThread = std::thread(&TelloSDK::keepAliveThreadFunc, this);
 
+    AudioEngine::playConnect();
     std::cout << "Connected to Tello successfully." << std::endl;
     return true;
 }
 
 void TelloSDK::disconnect() {
+    if (m_state != State::Disconnected) {
+        AudioEngine::playDisconnect();
+    }
     m_running = false;
     
     if (m_stateThread.joinable()) m_stateThread.join();
@@ -136,6 +141,7 @@ std::string TelloSDK::receiveResponse(int timeout_ms) {
 bool TelloSDK::takeoff() {
     if (sendCommand("takeoff")) {
         m_state = State::Flying;
+        AudioEngine::playTakeoff();
         return true;
     }
     return false;
@@ -144,6 +150,7 @@ bool TelloSDK::takeoff() {
 bool TelloSDK::land() {
     if (sendCommand("land")) {
         m_state = State::Connected;
+        AudioEngine::playLand();
         return true;
     }
     return false;
@@ -285,6 +292,7 @@ void TelloSDK::stateThreadFunc() {
                     std::lock_guard<std::mutex> lock(m_telemetryMutex);
                     m_latestTelemetry = t;
                 }
+                AudioEngine::setLowBattery(t.bat > 0 && t.bat <= 20);
                 if (onTelemetry) onTelemetry(t);
             }
         }

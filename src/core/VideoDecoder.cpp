@@ -1,5 +1,7 @@
 #include "VideoDecoder.h"
 #include <iostream>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 
 extern "C" {
 #include <libavutil/imgutils.h>
@@ -130,6 +132,18 @@ void VideoDecoder::processDecodedFrame(AVFrame* frame) {
     sws_scale(m_swsCtx, frame->data, frame->linesize, 0, frame->height,
               dest_data, dest_linesize);
 
+    // AI Frame Processors Pipeline
+    if (!m_processors.empty()) {
+        cv::Mat cvFrame(rgbFrame.height, rgbFrame.width, CV_8UC3, rgbFrame.data.data());
+        for (auto& processor : m_processors) {
+            if (processor->isEnabled()) {
+                cvFrame = processor->processFrame(cvFrame);
+            }
+        }
+        size_t size = cvFrame.total() * cvFrame.elemSize();
+        rgbFrame.data.assign(cvFrame.data, cvFrame.data + size);
+    }
+
     // Call callback on worker thread before locking (for recording/AI hook)
     if (onFrameDecoded) {
         onFrameDecoded(rgbFrame);
@@ -183,7 +197,20 @@ void VideoDecoder::uploadTexture(const VideoFrame& frame) {
 }
 
 void VideoDecoder::setLatestFrame(const VideoFrame& frame) {
+    VideoFrame processedFrame = frame;
+
+    if (!m_processors.empty()) {
+        cv::Mat cvFrame(processedFrame.height, processedFrame.width, CV_8UC3, processedFrame.data.data());
+        for (auto& processor : m_processors) {
+            if (processor->isEnabled()) {
+                cvFrame = processor->processFrame(cvFrame);
+            }
+        }
+        size_t size = cvFrame.total() * cvFrame.elemSize();
+        processedFrame.data.assign(cvFrame.data, cvFrame.data + size);
+    }
+
     std::lock_guard<std::mutex> lock(m_frameMutex);
-    m_latestFrame = frame;
+    m_latestFrame = processedFrame;
     m_newFrameAvailable = true;
 }

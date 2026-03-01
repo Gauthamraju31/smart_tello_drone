@@ -7,6 +7,8 @@
 #include <thread>
 #include <cstdint>
 #include <GL/gl.h>
+#include <memory>
+#include "../ai/FrameProcessor.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -47,6 +49,10 @@ public:
     // Allows external sources (like ReplaySession) to safely inject a frame
     void setLatestFrame(const VideoFrame& frame);
 
+    void addProcessor(std::shared_ptr<FrameProcessor> processor) {
+        m_processors.push_back(processor);
+    }
+
 private:
     void processDecodedFrame(AVFrame* frame);
 
@@ -64,4 +70,5 @@ private:
     GLuint m_textureID;          // OpenGL texture ID
 
     std::vector<uint8_t> m_buffer;
+    std::vector<std::shared_ptr<FrameProcessor>> m_processors;
 };

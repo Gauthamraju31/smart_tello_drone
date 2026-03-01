@@ -2,6 +2,11 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/calib3d.hpp>
 #include <iostream>
+#include <cmath>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 SLAMEngine::SLAMEngine() : m_enabled(false), m_isFirstFrame(true), m_lastTimestamp(0) {
     reset();
@@ -16,6 +21,13 @@ void SLAMEngine::reset() {
     m_t_f = cv::Mat::zeros(3, 1, CV_64F);
     m_prevPoints.clear();
     m_lastTimestamp = 0;
+    
+    // Dead reckoning reset
+    m_drPose = Eigen::Matrix4f::Identity();
+    m_drPosition = Eigen::Vector3f::Zero();
+    m_drInitialized = false;
+    m_initialYaw = 0.0f;
+    m_currentHeight = 0.0f;
 }
 
 #include <yaml-cpp/yaml.h>
@@ -52,6 +64,86 @@ void SLAMEngine::shutdown() {
     reset();
 }
 
+// ============================================================
+// Dead Reckoning from Telemetry
+// ============================================================
+void SLAMEngine::updateDeadReckoningPose(const TelemetryData& imu) {
+    // Tello telemetry:
+    //   yaw, pitch, roll: degrees (attitude)
+    //   vgx, vgy, vgz: cm/s (velocity in body frame)
+    //   h: height in cm (from downward IR/ToF sensor)
+    //   tof: time-of-flight distance cm
+    
+    m_currentHeight = (imu.h > 0) ? imu.h : (imu.tof > 0 ? imu.tof : m_currentHeight);
+    
+    if (!m_drInitialized) {
+        m_initialYaw = imu.yaw;
+        m_drInitialized = true;
+        m_lastTimestamp = imu.timestamp_ms;
+        return;
+    }
+    
+    float dt = (imu.timestamp_ms - m_lastTimestamp) / 1000.0f;
+    if (dt <= 0) dt = 1.0f / 30.0f;
+    if (dt > 1.0f) dt = 1.0f / 30.0f; // Clamp for large gaps
+    m_lastTimestamp = imu.timestamp_ms;
+    
+    // Attitude angles (degrees -> radians)
+    // Tello yaw: clockwise positive when viewed from above
+    float yawRad   = (imu.yaw - m_initialYaw) * M_PI / 180.0f;
+    float pitchRad = imu.pitch * M_PI / 180.0f;
+    float rollRad  = imu.roll * M_PI / 180.0f;
+    
+    // Build rotation matrix from Euler angles
+    // In CV convention: Y-down, Z-forward
+    // Yaw rotates around Y (vertical axis)
+    Eigen::AngleAxisf yawRot(-yawRad, Eigen::Vector3f::UnitY()); // Negate for CV Y-down convention
+    Eigen::AngleAxisf pitchRot(pitchRad, Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf rollRot(rollRad, Eigen::Vector3f::UnitZ());
+    Eigen::Matrix3f R_body = (yawRot * pitchRot * rollRot).toRotationMatrix();
+    
+    // Tello body-frame velocities (cm/s -> m/s):
+    //   vgx = forward, vgy = left, vgz = up
+    // Map to CV world frame (X=right, Y=down, Z=forward):
+    //   body forward (vgx) -> world Z
+    //   body left (vgy) -> world -X  
+    //   body up (vgz) -> world -Y (handled by height sensor instead)
+    Eigen::Vector3f vel_body_cv(
+        -imu.vgy / 100.0f,  // body left -> world -X (right is positive)
+        0.0f,                // Y handled by height sensor
+        imu.vgx / 100.0f    // body forward -> world Z
+    );
+    
+    // Rotate horizontal velocity by yaw to get world-frame movement
+    Eigen::Vector3f vel_world = R_body * vel_body_cv;
+    m_drPosition += vel_world * dt;
+    
+    // Use actual height from sensor for Y position
+    float heightM = m_currentHeight / 100.0f;
+    
+    // Build the dead-reckoning pose matrix
+    m_drPose = Eigen::Matrix4f::Identity();
+    m_drPose.block<3,3>(0,0) = R_body;
+    m_drPose(0, 3) = m_drPosition.x();   // X: lateral movement
+    m_drPose(1, 3) = -heightM;            // Y: height (negated for CV Y-down)
+    m_drPose(2, 3) = m_drPosition.z();   // Z: forward movement
+}
+
+void SLAMEngine::processTelemetry(const TelemetryData& imu) {
+    if (!m_enabled) return;
+    std::lock_guard<std::mutex> lock(m_mutex);
+    
+    updateDeadReckoningPose(imu);
+    
+    // In telemetry-only mode, the DR pose IS the current pose
+    if (m_poseMode == PoseMode::TELEMETRY_ONLY) {
+        m_currentPose = m_drPose;
+    }
+}
+
+// ============================================================
+// Visual Odometry + Fusion
+// ============================================================
 void SLAMEngine::processFrame(const cv::Mat& frame, const TelemetryData& imu) {
     if (!m_enabled || frame.empty()) return;
 
@@ -59,21 +151,20 @@ void SLAMEngine::processFrame(const cv::Mat& frame, const TelemetryData& imu) {
     cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
 
     std::lock_guard<std::mutex> lock(m_mutex);
+    
+    // Always update dead reckoning and height from telemetry
+    updateDeadReckoningPose(imu);
 
     if (m_isFirstFrame || m_prevPoints.size() < 100) {
-        // Find new features to track using FAST or Shi-Tomasi
         cv::goodFeaturesToTrack(gray, m_prevPoints, 2000, 0.01, 10);
-        
-        // If we still can't find points, wait for the next frame
         if (m_prevPoints.empty()) return;
-
         m_prevGray = gray.clone();
         m_isFirstFrame = false;
         m_lastTimestamp = imu.timestamp_ms;
         return;
     }
 
-    // Measure dt for IMU scale (convert to seconds)
+    // Measure dt
     float dt = (imu.timestamp_ms - m_lastTimestamp) / 1000.0f;
     if (dt <= 0) dt = 1.0f / 30.0f; 
     m_lastTimestamp = imu.timestamp_ms;
@@ -84,7 +175,6 @@ void SLAMEngine::processFrame(const cv::Mat& frame, const TelemetryData& imu) {
     std::vector<float> err;
     cv::calcOpticalFlowPyrLK(m_prevGray, gray, m_prevPoints, currPoints, status, err);
 
-    // Filter valid tracked points
     std::vector<cv::Point2f> goodPrev, goodCurr;
     for (size_t i = 0; i < status.size(); i++) {
         if (status[i]) {
@@ -94,7 +184,6 @@ void SLAMEngine::processFrame(const cv::Mat& frame, const TelemetryData& imu) {
     }
 
     if (goodPrev.size() < 15) {
-        // Lost tracking, need to re-detect features
         m_isFirstFrame = true;
         return;
     }
@@ -116,56 +205,94 @@ void SLAMEngine::processFrame(const cv::Mat& frame, const TelemetryData& imu) {
         return;
     }
 
-    // Monocular Scale Resolution using IMU velocity (vgx, vgy, vgz in cm/s -> m/s)
-    // Absolute distance = |v| * dt. If sitting on a desk, this is ~0.
+    // Scale resolution depends on mode
+    float absolute_scale = 0.05f; // fallback
+    
     float vx = imu.vgx / 100.0f;
     float vy = imu.vgy / 100.0f;
     float vz = imu.vgz / 100.0f;
-    float absolute_scale = std::sqrt(vx*vx + vy*vy + vz*vz) * dt;
-
-    // RELAXED CONSTRAINTS: Always update rotation.
-    m_R_f = R * m_R_f;
+    float imu_scale = std::sqrt(vx*vx + vy*vy + vz*vz) * dt;
     
-    // For translation, if the IMU reports no significant movement (e.g., simulated/desk test),
-    // we use a small fallback scale so the point cloud still generates and visualizes movement.
-    if (absolute_scale < 0.005f) {
-        absolute_scale = 0.05f; // Artificial scale for desk testing
+    if (m_poseMode == PoseMode::FUSED && imu_scale > 0.005f) {
+        // Use telemetry velocity for accurate scale
+        absolute_scale = imu_scale;
+    } else if (m_poseMode == PoseMode::VIDEO_ONLY) {
+        if (imu_scale > 0.005f) {
+            absolute_scale = imu_scale;
+        }
+        // else use fallback
     }
-    
-    // Always accumulate translation
+
+    // Always update VO rotation
+    m_R_f = R * m_R_f;
     m_t_f = m_t_f + absolute_scale * (m_R_f * t);
     
-    // Update Eigen pose matrix for MapViewer
+    // Build VO pose
+    Eigen::Matrix4f voPose = Eigen::Matrix4f::Identity();
     for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 3; ++c) {
-            m_currentPose(r, c) = m_R_f.at<double>(r, c);
+            voPose(r, c) = m_R_f.at<double>(r, c);
         }
-        m_currentPose(r, 3) = m_t_f.at<double>(r);
+        voPose(r, 3) = m_t_f.at<double>(r);
     }
-    m_currentPose(3, 3) = 1.0f;
+    voPose(3, 3) = 1.0f;
 
-    // Generate Map Points: relax scale checks so points always appear if tracking succeeds
+    // Select output pose based on mode
+    switch (m_poseMode) {
+        case PoseMode::VIDEO_ONLY:
+            m_currentPose = voPose;
+            break;
+        case PoseMode::TELEMETRY_ONLY:
+            m_currentPose = m_drPose;
+            break;
+        case PoseMode::FUSED: {
+            // Fused: use VO rotation (more precise) with telemetry scale
+            // Translation: use telemetry-scaled VO translation for XZ,
+            //              use actual height sensor for Y
+            m_currentPose = voPose;
+            float heightM = m_currentHeight / 100.0f;
+            if (heightM > 0.01f) {
+                m_currentPose(1, 3) = -heightM; // Y = -height in CV convention
+            }
+            break;
+        }
+    }
+
+    // Depth estimation for map points
+    // Use actual height from sensor if available, otherwise fallback
+    double depth = 2.0;
+    if (m_currentHeight > 5.0f) {
+        depth = m_currentHeight / 100.0; // Convert cm to meters
+    }
+
+    // Generate Map Points
     if (m_mapPoints.size() < 4000) {
         for (size_t i = 0; i < goodCurr.size(); i++) {
             if (mask.at<uchar>(i) && rand() % 10 == 0) {
-                // Approximate unprojection from pixel to 3D camera coordinates
                 double x = (goodCurr[i].x - m_K.at<double>(0, 2)) / m_K.at<double>(0, 0);
                 double y = (goodCurr[i].y - m_K.at<double>(1, 2)) / m_K.at<double>(1, 1);
-                double z = 2.0; // Assume arbitrary depth for visual effect since full triangulation is omitted here
                 
-                cv::Mat pt3d_cam = (cv::Mat_<double>(3, 1) << x * z, y * z, z);
+                cv::Mat pt3d_cam = (cv::Mat_<double>(3, 1) << x * depth, y * depth, depth);
                 cv::Mat pt3d_world = m_R_f.t() * (pt3d_cam - m_t_f);
                 
-                m_mapPoints.push_back(Eigen::Vector3f(
+                ColoredMapPoint cpt;
+                cpt.position = Eigen::Vector3f(
                     pt3d_world.at<double>(0),
                     pt3d_world.at<double>(1),
                     pt3d_world.at<double>(2)
-                ));
+                );
+                int px = std::clamp((int)goodCurr[i].x, 0, frame.cols - 1);
+                int py = std::clamp((int)goodCurr[i].y, 0, frame.rows - 1);
+                cv::Vec3b bgr = frame.at<cv::Vec3b>(py, px);
+                cpt.r = bgr[2] / 255.0f;
+                cpt.g = bgr[1] / 255.0f;
+                cpt.b = bgr[0] / 255.0f;
+                
+                m_mapPoints.push_back(cpt);
             }
         }
     }
 
-    // Prepare for next frame
     m_prevPoints = goodCurr;
     m_prevGray = gray.clone();
 }
@@ -175,7 +302,12 @@ Eigen::Matrix4f SLAMEngine::getPose() const {
     return m_currentPose;
 }
 
-std::vector<Eigen::Vector3f> SLAMEngine::getMapPoints() const {
+std::vector<ColoredMapPoint> SLAMEngine::getMapPoints() const {
     std::lock_guard<std::mutex> lock(m_mutex);
     return m_mapPoints;
+}
+
+std::vector<cv::Point2f> SLAMEngine::getTrackedPoints() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_prevPoints;
 }

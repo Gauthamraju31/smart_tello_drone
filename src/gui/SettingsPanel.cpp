@@ -3,7 +3,8 @@
 #include <spdlog/spdlog.h>
 #include <cstring>
 
-SettingsPanel::SettingsPanel(SLAMEngine& slamEngine) : m_slamEngine(slamEngine) {
+SettingsPanel::SettingsPanel(SLAMEngine& slamEngine, std::shared_ptr<Segmentation> segmentation) 
+    : m_slamEngine(slamEngine), m_segmentation(segmentation) {
     m_slamEnabled = m_slamEngine.isEnabled();
     
     try {
@@ -23,8 +24,10 @@ SettingsPanel::SettingsPanel(SLAMEngine& slamEngine) : m_slamEngine(slamEngine) 
                 m_slamEnabled = config["features"]["slam_enabled"].as<bool>();
                 m_slamEngine.setEnabled(m_slamEnabled);
             }
-            if (config["features"]["yolo_enabled"]) m_aiTracking = config["features"]["yolo_enabled"].as<bool>();
-            if (config["features"]["sam_enabled"]) m_aiSegmentation = config["features"]["sam_enabled"].as<bool>();
+            if (config["features"]["sam_enabled"]) {
+                m_aiSegmentation = config["features"]["sam_enabled"].as<bool>();
+                if (m_segmentation) m_segmentation->setEnabled(m_aiSegmentation);
+            }
         }
     } catch (const YAML::Exception& e) {
         spdlog::warn("SettingsPanel: Could not load config/settings.yaml ({})", e.what());
@@ -51,18 +54,18 @@ void SettingsPanel::render(bool* p_open) {
             }
         }
         
-        if (ImGui::CollapsingHeader("AI / Processing (Placeholders)", ImGuiTreeNodeFlags_DefaultOpen)) {
-            // These would normally toggle states in the FrameProcessors and SLAMEngine
-            ImGui::Checkbox("Object Tracking (YOLOv8)", &m_aiTracking);
-            ImGui::Checkbox("Instance Segmentation (SAM)", &m_aiSegmentation);
+        if (ImGui::CollapsingHeader("AI / Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::Checkbox("Instance Segmentation (YOLOv11)", &m_aiSegmentation)) {
+                if (m_segmentation) m_segmentation->setEnabled(m_aiSegmentation);
+            }
             ImGui::Separator();
             
             if (ImGui::Checkbox("Monocular SLAM (Map Viewer)", &m_slamEnabled)) {
                 m_slamEngine.setEnabled(m_slamEnabled);
             }
             
-            if (m_aiTracking || m_aiSegmentation || m_slamEnabled) {
-                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Warning: AI placeholders consume CPU");
+            if (m_aiSegmentation || m_slamEnabled) {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "Warning: AI processing consumes CPU");
             }
         }
     }
