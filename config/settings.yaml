@@ -1,0 +1,23 @@
+# Smart Tello Drone Configuration
+
+drone:
+  # Default flight speed (10-100 cm/s)
+  speed: 50
+  
+  # Network credentials (if connecting to an existing network in station mode)
+  ssid: "test_wifi"
+  password: "test_password"
+
+features:
+  # Enable Visual Odometry map plotting by default
+  slam_enabled: true
+  
+  # Vision features
+  yolo_enabled: false
+  sam_enabled: false
+  
+recording:
+  # Recording format ("MP4" supported)
+  format: "MP4"
+  # Default FPS to write the video
+  fps: 30.0
